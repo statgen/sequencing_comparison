@@ -62,7 +62,7 @@
 
 ### Run
 
-1. cd into `coverage` directory
+1. cd into `subset_normalize` directory
 2. edit `nextflow.config` file:
    
    `bams_list_path` -- Same file as in coverage computation: points to the file were each line is a whitespace delimited tuple: sample name, absolute path to  the corresponding BAM/CRAM file.
