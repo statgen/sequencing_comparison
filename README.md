@@ -80,3 +80,31 @@
 3. Run `nextlow run Subset.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Subset.nf -resume`.
 
 4. The final BCF files with normalized variants are located in `results/` folder.
+
+## C. Annotate variants
+
+### Setup
+
+1. Make sure that the latest version of `bcftools` and `tabix` are installed
+2. Make sure that the `VEP` (Variant Effect Predictor) v96 or higher is installed.
+
+### Run
+
+1. cd into `annotate` directory
+2. edit `nextflow.config` file:
+
+   `vcfs` -- path to the VCF/BCF files generate in the previous step
+   
+   `vep` -- path to `VEP` executable
+   
+   `vep_flags` -- set any additional VEP flags if needed
+   
+   `bcftools` -- path to `VEP` executable
+   
+   `tabix` -- path to `tabix` executable
+
+   Edit other options related to SLURM or local execution as needed.
+   
+3. Run `nextlow run Annotate.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Annotate.nf -resume`.
+
+4. The final VCF files with annotated variants are located in `results/vep` folder.
