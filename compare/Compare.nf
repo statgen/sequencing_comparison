@@ -4,8 +4,7 @@ files2 = Channel.from(file(params.study2_files_list_path).readLines()).map { lin
 
 
 process compare {
-   echo true
-//   errorStrategy "ignore"
+   errorStrategy "ignore"
 
    input:
    set val(sample1), val(sample2), val(dp1), val(gt1), val(vep1), val(dp2), val(gt2), val(vep2) from pairs.combine(files1.merge(files2))
