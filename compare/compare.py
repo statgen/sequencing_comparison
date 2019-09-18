@@ -59,7 +59,7 @@ def read_vep(in_vep_vcf, variants):
             else:
                 print(variant_name, variant_csqs)
                 continue
-            variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'type': variant_most_severe_csq }
+            variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq }
 
 
 def read_genotypes(in_vcf, sample, variants):
@@ -143,7 +143,9 @@ def summarize_sample(variants, qc_pass = True):
             'Count' : { },
             'Count_DP_0': { },
             'Count_DP_20': { },
-            'DP': { }
+            'DP': { },
+            'AC': { },
+            'AN': { }
             }
     for name, info in variants.items():
         if qc_pass is not None and info['pass'] != qc_pass:
@@ -154,6 +156,8 @@ def summarize_sample(variants, qc_pass = True):
             summary['Count'].setdefault(category, 0)
             summary['Count'][category] += 1
             summary['DP'].setdefault(category, []).append(dp)
+            summary['AC'].setdefault(category, []).append(info['ac'])
+            summary['AN'].setdefault(category, []).append(info['an'])
         if dp > 0:
             for category in categories:
                 summary['Count_DP_0'].setdefault(category, 0)
@@ -180,39 +184,45 @@ def summarize_pair(variants1, variants2):
             if not variant1['pass']: # ignore if FAIL
                 continue
             group = f'{variant1["pass"]}_{variant1["gt"]}_NONE_NONE'
-            summary.setdefault(group, { 'study_1': { 'DP': {}}})
+            summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}})
             for category in get_variant_categories(variant1):
-                summary[group]['study_1']['DP'].setdefault(category, [])
-                summary[group]['study_1']['DP'][category].append(variant1['dp'])
+                summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
+                summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
+                summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
         elif variant1 is None and variant2 is not None:
             if not variant2['pass']: # ignore if FAIL
                 continue
             group = f'NONE_NONE_{variant2["pass"]}_{variant2["gt"]}'
-            summary.setdefault(group, { 'study_2': {'DP': {}}})
+            summary.setdefault(group, { 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
             for category in get_variant_categories(variant2):
-                summary[group]['study_2']['DP'].setdefault(category, [])
-                summary[group]['study_2']['DP'][category].append(variant2['dp'])
+                summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
+                summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
+                summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
         else:
             # both variants were found
             if not variant1['pass'] and not variant2['pass']: # ignore if both FAIL
                 continue
             if variant1['ref'] == variant2['ref'] and variant1['alt'] == variant2['alt']: # both variants have same alllese
                 group = f'{variant1["pass"]}_{variant1["gt"]}_{variant2["pass"]}_{variant2["gt"]}'
-                summary.setdefault(group, { 'study_1': { 'DP': {}}, 'study_2': { 'DP': {}}})
+                summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
                 for category in get_variant_categories(variant1): # since ref and alt alleles match, then categories should be the same in both studies
-                    summary[group]['study_1']['DP'].setdefault(category, [])
-                    summary[group]['study_1']['DP'][category].append(variant1['dp'])
-                    summary[group]['study_2']['DP'].setdefault(category, [])
-                    summary[group]['study_2']['DP'][category].append(variant2['dp'])
+                    summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
+                    summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
+                    summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
+                    summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
+                    summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
+                    summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
             else:
                 group = f'ALLELE_MISMATCH'
-                summary.setdefault(group, { 'study_1': { 'DP': {}}, 'study_2': { 'DP': {}}})
+                summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
                 for category in get_variant_categories(variant1):
-                    summary[group]['study_1']['DP'].setdefault(category, [])
-                    summary[group]['study_1']['DP'][category].append(variant1['dp'])
+                    summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
+                    summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
+                    summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
                 for category in get_variant_categories(variant2):
-                    summary[group]['study_2']['DP'].setdefault(category, [])
-                    summary[group]['study_2']['DP'][category].append(variant2['dp'])
+                    summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
+                    summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
+                    summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
     return summary
 
 
