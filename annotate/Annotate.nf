@@ -11,7 +11,7 @@ process vep {
    publishDir "result/vep", pattern: "*.vep.vcf.gz*"
 
    """
-   ${params.bcftools} view -G ${vcf} | ${params.bcftools} annotate -x INFO | ${params.vep} -o ${vcf}.vep.vcf.gz --format vcf --cache --offline --vcf --compress_output bgzip --no_stats ${params.vep_flags}
+   ${params.bcftools} view -G ${vcf} | ${params.bcftools} annotate -x ^INFO/AC,INFO/AN | ${params.vep} -o ${vcf}.vep.vcf.gz --format vcf --cache --offline --vcf --compress_output bgzip --no_stats ${params.vep_flags}
    ${params.tabix} ${vcf}.vep.vcf.gz
    """
 }
