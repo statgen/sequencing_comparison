@@ -180,35 +180,39 @@ def summarize_pair(variants1, variants2):
             if not variant1['pass']: # ignore if FAIL
                 continue
             group = f'{variant1["pass"]}_{variant1["gt"]}_NONE_NONE'
-            summary.setdefault(group, { 'study_1': { 'DP': [] }})
+            summary.setdefault(group, { 'study_1': { 'DP': {}}})
             for category in get_variant_categories(variant1):
-                summary[group]['study_1']['DP'].append(variant1['dp'])
+                summary[group]['study_1']['DP'].setdefault(category, [])
+                summary[group]['study_1']['DP'][category].append(variant1['dp'])
         elif variant1 is None and variant2 is not None:
             if not variant2['pass']: # ignore if FAIL
                 continue
             group = f'NONE_NONE_{variant2["pass"]}_{variant2["gt"]}'
-            summary.setdefault(group, { 'study_2': {'DP': [] }})
+            summary.setdefault(group, { 'study_2': {'DP': {}}})
             for category in get_variant_categories(variant2):
-                summary[group]['study_2']['DP'].append(variant2['dp'])
+                summary[group]['study_2']['DP'].setdefault(category, [])
+                summary[group]['study_2']['DP'][category].append(variant2['dp'])
         else:
             # both variants were found
             if not variant1['pass'] and not variant2['pass']: # ignore if both FAIL
                 continue
             if variant1['ref'] == variant2['ref'] and variant1['alt'] == variant2['alt']: # both variants have same alllese
                 group = f'{variant1["pass"]}_{variant1["gt"]}_{variant2["pass"]}_{variant2["gt"]}'
-                summary.setdefault(group, { 'study_1': { 'DP': [] }, 'study_2': { 'DP': [] }})
+                summary.setdefault(group, { 'study_1': { 'DP': {}}, 'study_2': { 'DP': {}}})
                 for category in get_variant_categories(variant1): # since ref and alt alleles match, then categories should be the same in both studies
-                    summary[group]['study_1']['DP'].append(variant1['dp'])
-                    summary[group]['study_2']['DP'].append(variant2['dp'])
+                    summary[group]['study_1']['DP'].setdefault(category, [])
+                    summary[group]['study_1']['DP'][category].append(variant1['dp'])
+                    summary[group]['study_2']['DP'].setdefault(category, [])
+                    summary[group]['study_2']['DP'][category].append(variant2['dp'])
             else:
                 group = f'ALLELE_MISMATCH'
-                summary.setdefault(group, { 'study_1': {}, 'study_2': {} })
+                summary.setdefault(group, { 'study_1': { 'DP': {}}, 'study_2': { 'DP': {}}})
                 for category in get_variant_categories(variant1):
-                    summary[group]['study_1'].setdefault(category, {'DP': []})
-                    summary[group]['study_1'][category]['DP'].append(variant1['dp'])
+                    summary[group]['study_1']['DP'].setdefault(category, [])
+                    summary[group]['study_1']['DP'][category].append(variant1['dp'])
                 for category in get_variant_categories(variant2):
-                    summary[group]['study_2'].setdefault(category, {'DP': []})
-                    summary[group]['study_2'][category]['DP'].append(variant2['dp'])
+                    summary[group]['study_2']['DP'].setdefault(category, [])
+                    summary[group]['study_2']['DP'][category].append(variant2['dp'])
     return summary
 
 
