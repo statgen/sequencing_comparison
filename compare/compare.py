@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
+
 import argparse
 import pysam
 import statistics
 import json
-
+import gzip
 
 argparser = argparse.ArgumentParser(description = 'Compares called genotypes in two samples from different sequencing experiments')
 argparser.add_argument('-s1', '--sample-study1', metavar = 'name', dest = 'sample1', required = True, help = 'Sample name from study 1.')
@@ -244,22 +246,28 @@ if __name__ == '__main__':
     read_depth(args.in_dp_vcf2, args.sample2, variants2)
     print('With DP 2 = ', len(variants2))
 
-    with open(args.out_file, 'w') as ofile:
+    with gzip.open(args.out_file, 'wt') as ofile:
         summaries = []
         for filter_value in [None, True, False]:
             summary = summarize_sample(variants1, filter_value)
             summary['sample'] = args.sample1
+            summary['gt_file'] = args.in_vcf1
+            summary['dp_file'] = args.in_dp_vcf1
+            summary['vep_file'] = args.in_vep_vcf1
             summary['study'] = 1
             summary['filter'] = filter_value
             summaries.append(summary)
         for filter_value in [None, True, False]:
             summary = summarize_sample(variants2, filter_value)
             summary['sample'] = args.sample1
+            summary['gt_file'] = args.in_vcf2
+            summary['dp_file'] = args.in_dp_vcf2
+            summary['vep_file'] = args.in_vep_vcf2
             summary['study'] = 2
             summary['filter'] = filter_value
             summaries.append(summary)
         summary = summarize_pair(variants1, variants2)
         summary['pairwise'] = 'study1_vs_study2'
         summaries.append(summary)
-        json.dump(summaries, ofile, indent = 4)
+        json.dump(summaries, ofile)
 
