@@ -18,7 +18,7 @@ process compare {
    set val(sample1), val(sample2), val(index), val(dp1), val(gt1), val(vep1), val(dp2), val(gt2), val(vep2) from pairs.combine(indices.merge(files1).merge(files2))
 
    output:
-   set file("${sample1}.summary.gz"), file("${sample1}.summary.log") into compared
+   set file("${index}.${sample1}.summary.gz"), file("${index}.${sample1}.summary.log") into compared
 
    publishDir "results", pattern: "*.summary.*"
 
