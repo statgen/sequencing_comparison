@@ -11,7 +11,6 @@ files2 = Channel.from(file(params.study2_files_list_path).readLines()).map { lin
 
 
 process compare {
-   echo true
    errorStrategy "ignore"
 
    input:
