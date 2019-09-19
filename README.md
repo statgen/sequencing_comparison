@@ -108,3 +108,22 @@
 3. Run `nextlow run Annotate.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Annotate.nf -resume`.
 
 4. The final VCF files with annotated variants are located in `results/vep` folder.
+
+## D. Pairwise sample comparison (concordance)
+
+1. cd into `compare` directory
+2. edit `nextlow.config` file:
+
+   `pairs_list_path` -- Mapping file with sample IDs (no header). Each line has two whitespace (or tab) delimited columns. First column stores sample ID in study 1, second column stores corresponding sample ID in study 2. See `example_pairs.list`.
+   
+   `study1_files_list_path` -- File with absolute paths to coverage, genotype, and annotation files generated in previous steps for study 1. The file has three whitespace (or tab) delimited columns (no header). The first column stores absolute path to coverage files from step A, the second column stores absolute path to the genotype files from step B, the third column stores absolute path to the annotation files from step C. Important: each row must store corresponding files for the same chromosome. See `study1_files.list`.
+   
+   `study2_files_list_path` -- File with the same structure as `study1_files_list_path`, but with absolute paths to coverage, genotype, and annotation files for study 2.
+   
+   `compare` -- absolute path to the`compare.py` script
+   
+   Edit other options related to SLURM or local execution as needed.
+   
+3. Run `nextlow run Compare.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Compare.nf -resume`.
+
+4. The final gzip compressed summary files are located in `results/` folder.
