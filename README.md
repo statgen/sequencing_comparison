@@ -127,3 +127,22 @@
 3. Run `nextlow run Compare.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Compare.nf -resume`.
 
 4. The final gzip compressed summary files are located in `results/` folder.
+
+## E. Depth histograms in CDS
+
+1. cd into `histograms` directory
+2. edit `nextflow.config`
+  
+   `gencode_gtf_path` -- path to GENCODE GTF file. Change only if other than `v31` version needed.
+  
+   `coverage_files_path` -- path to VCF/BCF files generated in step A (i.e. in `sequencing_comparison/coverage/results/merged` directory).
+  
+   `coverage_files_index_suffix` -- change to `tbi` if VCF/BCF files in step A were indexed using TBI index (i.e. default tabix).
+  
+   `histograms` -- absolute path to the`histograms.py` script.
+  
+   Edit other options related to SLURM or local execution as needed.
+  
+3. Run `nextlow run Histograms.nf`. Preferrably run from `tmux` session. When crashed (e.g. SLURM node failure) use `nextflow run Histograms.nf -resume`.
+
+4. The final gzip compressed histogram files are located in `results/` folder.
