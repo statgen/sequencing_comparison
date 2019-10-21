@@ -59,7 +59,7 @@ def read_vep(in_vep_vcf, variants):
             elif 'synonymous_variant' in variant_csqs or 'stop_retained_variant' in variant_csqs or 'start_retained_variant' in variant_csqs:
                 variant_most_severe_csq = 'synonymous'
             else:
-                print(variant_name, variant_csqs)
+                print(f'WARNING (not in CDS): Variant {variant_name} ({variant_csqs}) will be omitted.')
                 continue
             variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq }
 
@@ -96,7 +96,7 @@ def read_depth(in_vcf, sample, variants):
                 records = list(ifile.fetch('chr' + chrom, pos - 2, pos + 2))
             if not records:
                 # if there was no entries, then most probably this region wasn't in our CDS list and we remove this variant completely
-                print(variant_name)
+                print(f'WARNING (no DP): Variant {variant_name} will be omitted.')
                 variants_to_remove.append(variant_name)
                 continue
             dp = None
@@ -107,6 +107,25 @@ def read_depth(in_vcf, sample, variants):
             variant_info.update({ 'dp': 0 if dp is None else dp })
         for variant_name in variants_to_remove:
             variants.pop(variant_name)
+
+
+def get_variant_dp(in_vcf, sample, variant_name):
+    with pysam.VariantFile(in_vcf) as ifile:
+        vcf_samples = set((ifile.header.samples))
+        if not sample in vcf_samples:
+            raise Exception(f'Sample {sample} was not found in {in_vcf} file.')
+        ifile.subset_samples([sample])
+        chrom, pos = variant_name.split('-')
+        pos = int(pos)
+        records = list(ifile.fetch(chrom, pos - 2, pos + 2)) # we fetch several positions and then filter out
+        if not records: # maybe we need to add 'chr' prefix
+           records = list(ifile.fetch('chr' + chrom, pos - 2, pos + 2))
+        if not records:
+           return None
+        for record in records:
+           if record.pos == pos:
+              return record.samples[sample]['DP']
+        return 0
 
 
 def get_variant_categories(info):
@@ -171,7 +190,7 @@ def summarize_sample(variants, qc_pass = True):
     return summary
 
 
-def summarize_pair(variants1, variants2):
+def summarize_pair(sample1, variants1, in_dp_vcf1, sample2, variants2, in_dp_vcf2):
     names_union = set()
     names_union.update(variants1.keys())
     names_union.update(variants2.keys())
@@ -185,18 +204,26 @@ def summarize_pair(variants1, variants2):
         if variant1 is not None and variant2 is None:
             if not variant1['pass']: # ignore if FAIL
                 continue
+            dp2 = get_variant_dp(in_dp_vcf2, sample2, name)
+            if dp2 is None: # ignore if depth was not found in another study
+                continue
             group = f'{variant1["pass"]}_{variant1["gt"]}_NONE_NONE'
-            summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}})
+            summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}}})
             for category in get_variant_categories(variant1):
                 summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
                 summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
                 summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
+                summary[group]['study_2']['DP'].setdefault(category, []).append(dp2)
         elif variant1 is None and variant2 is not None:
             if not variant2['pass']: # ignore if FAIL
                 continue
+            dp1 = get_variant_dp(in_dp_vcf1, sample1, name)
+            if dp1 is None: # ignore if depth was not found in another study
+                continue
             group = f'NONE_NONE_{variant2["pass"]}_{variant2["gt"]}'
-            summary.setdefault(group, { 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
+            summary.setdefault(group, { 'study_1': {'DP': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
             for category in get_variant_categories(variant2):
+                summary[group]['study_1']['DP'].setdefault(category, []).append(dp1)
                 summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
                 summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
                 summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
@@ -232,19 +259,19 @@ if __name__ == '__main__':
     args = argparser.parse_args()
     variants1 = dict()
     read_vep(args.in_vep_vcf1, variants1)
-    print('All 1 = ', len(variants1))
+    print(f'All variants in study 1: {len(variants1)}')
     read_genotypes(args.in_vcf1, args.sample1, variants1)
-    print('Sample 1 = ', len(variants1))
+    print(f'Variants in individual in study 1: {len(variants1)}')
     read_depth(args.in_dp_vcf1, args.sample1, variants1)
-    print('With DP 1 = ', len(variants1))
+    print(f'Variants with DP in individual in study 1: {len(variants1)}')
 
     variants2 = dict()
     read_vep(args.in_vep_vcf2, variants2)
-    print('All 2 = ', len(variants2))
+    print(f'All variants in study 2: {len(variants2)}')
     read_genotypes(args.in_vcf2, args.sample2, variants2)
-    print('Sample 2 = ', len(variants2))
+    print(f'Variants in individual in study 2: {len(variants2)}')
     read_depth(args.in_dp_vcf2, args.sample2, variants2)
-    print('With DP 2 = ', len(variants2))
+    print(f'Variants with DP in individual in study 2: {len(variants2)}')
 
     with gzip.open(args.out_file, 'wt') as ofile:
         summaries = []
@@ -266,7 +293,7 @@ if __name__ == '__main__':
             summary['study'] = 2
             summary['filter'] = filter_value
             summaries.append(summary)
-        summary = summarize_pair(variants1, variants2)
+        summary = summarize_pair(args.sample1, variants1, args.in_dp_vcf1, args.sample2, variants2, args.in_dp_vcf2)
         summary['pairwise'] = 'study1_vs_study2'
         summaries.append(summary)
         json.dump(summaries, ofile)
