@@ -30,10 +30,13 @@ def read_vep(in_vep_vcf, variants):
         for record in ifile.fetch():
             variant_name = f'{record.chrom[3:] if record.chrom.startswith("chr") else record.chrom}-{record.pos}' # we work with bi-allelic variants only -> chr:pos is enough to identify variant
             variant_csqs = set()
+            lof = False
             for csq in record.info['CSQ']:
                 csq = dict(zip(csq_header, csq.split('|')))
                 if csq['BIOTYPE'] != 'protein_coding':
                     continue
+                if csq['LoF'] == 'HC':
+                    lof = True
                 csqs = csq['Consequence'].split('&')
                 if any(x in csqs for x in cds_variant_types):
                     variant_csqs.update(csqs)
@@ -61,7 +64,7 @@ def read_vep(in_vep_vcf, variants):
             else:
                 print(f'WARNING (not in CDS): Variant {variant_name} ({variant_csqs}) will be omitted.')
                 continue
-            variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq }
+            variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq, 'lof': lof }
 
 
 def read_genotypes(in_vcf, sample, variants):
@@ -130,6 +133,8 @@ def get_variant_dp(in_vcf, sample, variant_name):
 
 def get_variant_categories(info):
     categories = ['ALL', info['type']]
+    if info['lof']:
+        categories.append('LOF')
     length = len(info['ref']) - len(info['alt'])
     if length == 0:
         if len(info['ref']) > 1:
