@@ -5,6 +5,10 @@ import pysam
 import statistics
 import json
 import gzip
+import re
+
+# for debugging
+import time
 
 argparser = argparse.ArgumentParser(description = 'Compares called genotypes in two samples from different sequencing experiments')
 argparser.add_argument('-s1', '--sample-study1', metavar = 'name', dest = 'sample1', required = True, help = 'Sample name from study 1.')
@@ -21,6 +25,9 @@ argparser.add_argument('-o', '--output', metavar = 'file', dest = 'out_file', re
 cds_variant_types = ['start_lost', 'start_retained_variant', 'stop_retained_variant', 'synonymous_variant', 'missense_variant', 'inframe_insertion', 'inframe_deletion', 'stop_gained', 'stop_lost', 'frameshift_variant', 'coding_sequence_variant', 'splice_donor_variant', 'splice_acceptor_variant']
 
 
+alt_regex = re.compile('^[AGTC]+$')
+
+
 def read_vep(in_vep_vcf, variants):
     with pysam.VariantFile(in_vep_vcf) as ifile:
         csq_meta = ifile.header.info.get('CSQ', None)
@@ -28,7 +35,13 @@ def read_vep(in_vep_vcf, variants):
             raise Exception('No meta-information entry about CSQ INFO field found!')
         csq_header = csq_meta.description.split(':', 1)[1].strip().split('|')
         for record in ifile.fetch():
-            variant_name = f'{record.chrom[3:] if record.chrom.startswith("chr") else record.chrom}-{record.pos}' # we work with bi-allelic variants only -> chr:pos is enough to identify variant
+            if len(record.alts) > 1: # multi-allelic variants must be split into multiple bi-allelic VCF entries
+                raise Exception('Multi-allelic VCF records are not supported. Multi-allelic variants must be split into multiple bi-allelic VCF entries.')
+            ref = record.ref
+            alt = record.alts[0]
+            if not alt_regex.match(alt): # skip non-trivial variants e.g. ALT=* for spanning deletions
+                continue
+            variant_name = f'{record.chrom[3:] if record.chrom.startswith("chr") else record.chrom}-{record.pos}-{ref}-{alt}'
             variant_csqs = set()
             lof = False
             for csq in record.info['CSQ']:
@@ -64,7 +77,7 @@ def read_vep(in_vep_vcf, variants):
             else:
                 print(f'WARNING (not in CDS): Variant {variant_name} ({variant_csqs}) will be omitted.')
                 continue
-            variants[variant_name] = { 'ref': record.ref, 'alt': record.alts[0], 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq, 'lof': lof }
+            variants[variant_name] = { 'ac': record.info['AC'][0], 'an': record.info['AN'], 'type': variant_most_severe_csq, 'lof': lof }
 
 
 def read_genotypes(in_vcf, sample, variants):
@@ -74,8 +87,14 @@ def read_genotypes(in_vcf, sample, variants):
             raise Exception(f'Sample {sample} was not found in {in_vcf} file.')
         ifile.subset_samples([sample])
         for record in ifile:
-            variant_name = f'{record.chrom[3:] if record.chrom.startswith("chr") else record.chrom}-{record.pos}'
-            if variant_name not in variants:
+            if len(record.alts) > 1: # multi-allelic variants must be split into multiple bi-allelic VCF entries
+                raise Exception('Multi-allelic VCF records are not supported. Multi-allelic variants must be split into multiple bi-allelic VCF entries.')
+            ref = record.ref
+            alt = record.alts[0]
+            if not alt_regex.match(alt): # skip non-trivial variants e.g. ALT=* for spanning deletions
+                continue
+            variant_name = f'{record.chrom[3:] if record.chrom.startswith("chr") else record.chrom}-{record.pos}-{ref}-{alt}'
+            if variant_name not in variants: # this variant is not in CDS or in the region which is not interesting for us
                 continue
             gt = record.samples[sample]['GT']
             if None in gt or sum(gt) == 0:
@@ -91,23 +110,27 @@ def read_depth(in_vcf, sample, variants):
             raise Exception(f'Sample {sample} was not found in {in_vcf} file.')
         ifile.subset_samples([sample])
         variants_to_remove = []
-        for variant_name, variant_info in variants.items():
-            chrom, pos = variant_name.split('-')
-            pos = int(pos)
-            records = list(ifile.fetch(chrom, pos - 2, pos + 2)) # we fetch several positions and then filter out
+
+        def load_depth(chrom, pos):
+            start = max(0, pos - 2)
+            stop = pos + 500
+            records = { r.pos: r.samples[sample]['DP'] for r in ifile.fetch(chrom, start, stop) }
             if not records: # maybe we need to add 'chr' prefix
-                records = list(ifile.fetch('chr' + chrom, pos - 2, pos + 2))
-            if not records:
-                # if there was no entries, then most probably this region wasn't in our CDS list and we remove this variant completely
+                records = { r.pos: r.samples[sample]['DP'] for r in ifile.fetch('chr' + chrom, start, stop) }
+            return (start, stop, records)
+
+        depth_chunk = None
+        for variant_name in sorted(variants, key = lambda x: int(x.split('-')[1]), reverse = False):
+            chrom, pos, ref, alt = variant_name.split('-')
+            pos = int(pos)
+            if depth_chunk is None or pos <= depth_chunk[0] or pos >= depth_chunk[1]:
+                depth_chunk = load_depth(chrom, pos)
+            dp = depth_chunk[2].get(pos, None)
+            if dp is None:
+                # if there was no entries, then most probably this region wasn't in our CDS list and we remove this variant completely from our comparison
                 print(f'WARNING (no DP): Variant {variant_name} will be omitted.')
                 variants_to_remove.append(variant_name)
-                continue
-            dp = None
-            for record in records:
-                if record.pos == pos:
-                    dp = record.samples[sample]['DP']
-                    break
-            variant_info.update({ 'dp': 0 if dp is None else dp })
+            variants[variant_name].update({ 'dp': dp })
         for variant_name in variants_to_remove:
             variants.pop(variant_name)
 
@@ -118,26 +141,27 @@ def get_variant_dp(in_vcf, sample, variant_name):
         if not sample in vcf_samples:
             raise Exception(f'Sample {sample} was not found in {in_vcf} file.')
         ifile.subset_samples([sample])
-        chrom, pos = variant_name.split('-')
+        chrom, pos, ref, alt = variant_name.split('-')
         pos = int(pos)
         records = list(ifile.fetch(chrom, pos - 2, pos + 2)) # we fetch several positions and then filter out
         if not records: # maybe we need to add 'chr' prefix
            records = list(ifile.fetch('chr' + chrom, pos - 2, pos + 2))
-        if not records:
-           return None
+        if not records: # at this point we assume that it was not sequenced
+           return 0
         for record in records:
            if record.pos == pos:
               return record.samples[sample]['DP']
         return 0
 
 
-def get_variant_categories(info):
+def get_variant_categories(name, info):
     categories = ['ALL', info['type']]
+    chrom, pos, ref, alt = name.split('-')
     if info['lof']:
         categories.append('LOF')
-    length = len(info['ref']) - len(info['alt'])
+    length = len(ref) - len(alt)
     if length == 0:
-        if len(info['ref']) > 1:
+        if len(ref) > 1:
             categories.append('MNP')
         else:
             categories.append('SNP')
@@ -177,7 +201,7 @@ def summarize_sample(variants, qc_pass = True):
         if qc_pass is not None and info['pass'] != qc_pass:
             continue
         dp = info['dp']
-        categories = get_variant_categories(info)
+        categories = get_variant_categories(name, info)
         for category in categories:
             summary['Count'].setdefault(category, 0)
             summary['Count'][category] += 1
@@ -203,18 +227,16 @@ def summarize_pair(sample1, variants1, in_dp_vcf1, sample2, variants2, in_dp_vcf
     summary = {}
 
     print('Union = ', len(names_union))
-    for name in names_union:
+    for name in sorted(names_union, key = lambda x: int(x.split('-')[1]), reverse = False):
         variant1 = variants1.get(name, None)
         variant2 = variants2.get(name, None)
         if variant1 is not None and variant2 is None:
             if not variant1['pass']: # ignore if FAIL
                 continue
             dp2 = get_variant_dp(in_dp_vcf2, sample2, name)
-            if dp2 is None: # ignore if depth was not found in another study
-                continue
             group = f'{variant1["pass"]}_{variant1["gt"]}_NONE_NONE'
             summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}}})
-            for category in get_variant_categories(variant1):
+            for category in get_variant_categories(name, variant1):
                 summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
                 summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
                 summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
@@ -223,11 +245,9 @@ def summarize_pair(sample1, variants1, in_dp_vcf1, sample2, variants2, in_dp_vcf
             if not variant2['pass']: # ignore if FAIL
                 continue
             dp1 = get_variant_dp(in_dp_vcf1, sample1, name)
-            if dp1 is None: # ignore if depth was not found in another study
-                continue
             group = f'NONE_NONE_{variant2["pass"]}_{variant2["gt"]}'
             summary.setdefault(group, { 'study_1': {'DP': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
-            for category in get_variant_categories(variant2):
+            for category in get_variant_categories(name, variant2):
                 summary[group]['study_1']['DP'].setdefault(category, []).append(dp1)
                 summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
                 summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
@@ -236,27 +256,15 @@ def summarize_pair(sample1, variants1, in_dp_vcf1, sample2, variants2, in_dp_vcf
             # both variants were found
             if not variant1['pass'] and not variant2['pass']: # ignore if both FAIL
                 continue
-            if variant1['ref'] == variant2['ref'] and variant1['alt'] == variant2['alt']: # both variants have same alllese
-                group = f'{variant1["pass"]}_{variant1["gt"]}_{variant2["pass"]}_{variant2["gt"]}'
-                summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
-                for category in get_variant_categories(variant1): # since ref and alt alleles match, then categories should be the same in both studies
-                    summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
-                    summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
-                    summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
-                    summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
-                    summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
-                    summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
-            else:
-                group = f'ALLELE_MISMATCH'
-                summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
-                for category in get_variant_categories(variant1):
-                    summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
-                    summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
-                    summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
-                for category in get_variant_categories(variant2):
-                    summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
-                    summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
-                    summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
+            group = f'{variant1["pass"]}_{variant1["gt"]}_{variant2["pass"]}_{variant2["gt"]}'
+            summary.setdefault(group, { 'study_1': { 'DP': {}, 'AN': {}, 'AC': {}}, 'study_2': { 'DP': {}, 'AN': {}, 'AC': {}}})
+            for category in get_variant_categories(name, variant1): # since ref and alt alleles match, then categories should be the same in both studies
+                summary[group]['study_1']['DP'].setdefault(category, []).append(variant1['dp'])
+                summary[group]['study_1']['AN'].setdefault(category, []).append(variant1['an'])
+                summary[group]['study_1']['AC'].setdefault(category, []).append(variant1['ac'])
+                summary[group]['study_2']['DP'].setdefault(category, []).append(variant2['dp'])
+                summary[group]['study_2']['AN'].setdefault(category, []).append(variant2['an'])
+                summary[group]['study_2']['AC'].setdefault(category, []).append(variant2['ac'])
     return summary
 
 
@@ -267,7 +275,9 @@ if __name__ == '__main__':
     print(f'All variants in study 1: {len(variants1)}')
     read_genotypes(args.in_vcf1, args.sample1, variants1)
     print(f'Variants in individual in study 1: {len(variants1)}')
+    # t_start = time.time()
     read_depth(args.in_dp_vcf1, args.sample1, variants1)
+    # print(time.time() - t_start)
     print(f'Variants with DP in individual in study 1: {len(variants1)}')
 
     variants2 = dict()
@@ -275,7 +285,9 @@ if __name__ == '__main__':
     print(f'All variants in study 2: {len(variants2)}')
     read_genotypes(args.in_vcf2, args.sample2, variants2)
     print(f'Variants in individual in study 2: {len(variants2)}')
+    # t_start = time.time()
     read_depth(args.in_dp_vcf2, args.sample2, variants2)
+    # print(time.time() - t_start)
     print(f'Variants with DP in individual in study 2: {len(variants2)}')
 
     with gzip.open(args.out_file, 'wt') as ofile:
@@ -301,5 +313,5 @@ if __name__ == '__main__':
         summary = summarize_pair(args.sample1, variants1, args.in_dp_vcf1, args.sample2, variants2, args.in_dp_vcf2)
         summary['pairwise'] = 'study1_vs_study2'
         summaries.append(summary)
-        json.dump(summaries, ofile)
+        json.dump(summaries, ofile, sort_keys = True)
 
