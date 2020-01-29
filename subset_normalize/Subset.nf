@@ -15,7 +15,7 @@ process subset {
 
    """
    cut -f1 -d" " ${bams_list} > samples.list
-   ${params.bcftools} view -S samples.list -c 1 ${vcf} | ${params.bcftools} norm -m -any | ${params.bcftools} norm -f ${reference} -Ob -o ${vcf.baseName}.subset.bcf
+   ${params.bcftools} view -S samples.list -c 1 ${vcf} | ${params.bcftools} norm -m -any | ${params.bcftools} norm -f ${reference} | ${params.bcftools} view -v snps,indels -c 1 -Ob -o ${vcf.baseName}.subset.bcf
    ${params.tabix} ${vcf.baseName}.subset.bcf 
    """
 }
