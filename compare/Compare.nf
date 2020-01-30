@@ -14,13 +14,15 @@ process compare {
 
    input:
    set val(sample1), val(sample2), val(index), val(dp1), val(gt1), val(vep1), val(dp2), val(gt2), val(vep2) from pairs.combine(indices.merge(files1).merge(files2))
+   each file(targets) from Channel.fromPath(params.targets_bed_path)
 
    output:
-   set file("${index}.${sample1}.summary.gz"), file("${index}.${sample1}.summary.log") into compared
+   file "${index}.${sample1}.tar.gz" into compared
 
-   publishDir "results", pattern: "*.summary.*"
+   publishDir "results", pattern: "*.tar.gz"
 
    """
-   ${params.compare} -s1 ${sample1} -s2 ${sample2} -d1 ${dp1} -g1 ${gt1} -a1 ${vep1} -d2 ${dp2} -g2 ${gt2} -a2 ${vep2} -o ${index}.${sample1}.summary.gz > ${index}.${sample1}.summary.log 
+   ${params.compare} -s1 ${sample1} -s2 ${sample2} -d1 ${dp1} -g1 ${gt1} -a1 ${vep1} -d2 ${dp2} -g2 ${gt2} -a2 ${vep2} -t ${targets} -o ${index}.${sample1} > ${index}.${sample1}.log 
+   tar -czf ${index}.${sample1}.tar.gz ${index}.${sample1}.json.gz ${index}.${sample1}.on_target.json.gz ${index}.${sample1}.log
    """
 }
