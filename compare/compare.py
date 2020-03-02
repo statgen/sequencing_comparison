@@ -87,7 +87,7 @@ def read_genotypes(in_vcf, sample, variants):
             if None in gt or sum(gt) == 0:
                 continue
             variant_name = (record.chrom[3:] if record.chrom.startswith('chr') else record.chrom, record.pos, record.ref, alt)
-            variants[variant_name] = Variant(gt = sum(gt), is_pass = 'PASS' in record.filter)
+            variants[variant_name] = Variant(gt = sum(gt), is_pass = 'PASS' in list(record.filter))
 
 
 def read_vep(in_vep_vcf, variants):
